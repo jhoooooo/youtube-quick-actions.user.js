@@ -22,5 +22,4 @@ Icons by Font Awesome @fontawesome — https://fontawesome.com
 
 ## 👉 [https://ko-fi.com/jhooo](https://ko-fi.com/jhooo)
 
-## 🖼️
 ![firefox_QNPibS9An3](https://github.com/user-attachments/assets/665c1c32-86a9-460c-9ecd-5681f4a1fdb3)
