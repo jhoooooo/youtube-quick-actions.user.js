@@ -1,11 +1,15 @@
 // ==UserScript==
 // @name        YouTube Quick Actions
 // @description Adds quick-action buttons like Hide, Save to Playlist, Not Interested, and Don’t Recommend
-// @version     1.4.3
+// @version     1.6.1
 // @match       https://www.youtube.com/*
 // @license     Unlicense
 // @icon        https://www.youtube.com/s/desktop/c722ba88/img/logos/favicon_144x144.png
 // @grant       GM_addStyle
+// @grant       GM_getValue
+// @grant       GM_setValue
+// @grant       GM_registerMenuCommand
+// @grant       GM_unregisterMenuCommand
 // @compatible  firefox
 // @namespace   https://greasyfork.org/users/1223791
 // ==/UserScript==
@@ -92,8 +96,6 @@ GM_addStyle(style);
 /*                                  Variables                                 */
 /* -------------------------------------------------------------------------- */
 
-const isLoggingEnabled = true;
-
 // Elem to search for
 const normalVideoTagName = "YTD-RICH-ITEM-RENDERER";
 const searchVideoTagName = "YTD-VIDEO-RENDERER";
@@ -112,7 +114,6 @@ const normalHamburgerMenuSelector = "button#button.style-scope.yt-icon-button";
 const shortsAndPlaylistHamburgerMenuSelector = "button.yt-spec-button-shape-next";
 const dropdownMenuTagName = "TP-YT-IRON-DROPDOWN";
 const popupMenuItemsSelector = "yt-formatted-string.style-scope.ytd-menu-service-item-renderer, yt-list-item-view-model[role='menuitem']";
-
 //Menu Extractions / Properties Path
 const searchMenuPropertyPath = "menu.menuRenderer.items";
 const gridMenuPropertyPath = "menu.menuRenderer.items";
@@ -127,6 +128,10 @@ const membersOnlyMenuPropertyPath = "content.feedEntryRenderer.item.videoRendere
 const membersOnlyMenuPropertyPath2 = "content.videoRenderer.menu.menuRenderer.items";
 const availableMenuItemsList1 = "listItemViewModel?.title?.content";
 const availableMenuItemsList2 = "menuServiceItemRenderer?.text?.runs?.[0]?.text";
+const normalVideoRichThumbnailPath = "content?.videoRenderer?.richThumbnail?.movingThumbnailRenderer?.movingThumbnailDetails?.thumbnails?.[0]?.url";
+const normalVideoThumbnailPath = "content?.videoRenderer?.thumbnail?.thumbnails";
+const compactVideoRichThumbnailPath = "richThumbnail?.movingThumbnailRenderer?.movingThumbnailDetails?.thumbnails?.[0]?.url";
+const compactVideoThumbnailPath = "thumbnail?.thumbnails";
 
 // <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.-->
 const notInterestedIcon = `<svg class="qa-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor"><!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM159.3 388.7c-2.6 8.4-11.6 13.2-20 10.5s-13.2-11.6-10.5-20C145.2 326.1 196.3 288 256 288s110.8 38.1 127.3 91.3c2.6 8.4-2.1 17.4-10.5 20s-17.4-2.1-20-10.5C340.5 349.4 302.1 320 256 320s-84.5 29.4-96.7 68.7zM144.4 208a32 32 0 1 1 64 0 32 32 0 1 1 -64 0zm192-32a32 32 0 1 1 0 64 32 32 0 1 1 0-64z"/></svg>`;
@@ -143,217 +148,286 @@ const trashIcon = `<svg class="qa-icon" xmlns="http://www.w3.org/2000/svg" viewB
 /*                                  Functions                                 */
 /* -------------------------------------------------------------------------- */
 
+/* ----------------------------- Menu Commmands ----------------------------- */
+
+let isLoggingEnabled = GM_getValue("isLoggingEnabled", false);
+let optRichThumbnail = GM_getValue("optRichThumbnail", true);
+const menuCommands = [
+    {
+        label: () => `Rich Thumbnail: ${optRichThumbnail ? "ON" : "OFF"}`,
+        toggle: function toggleRichThumbnail()
+        {
+            optRichThumbnail = !optRichThumbnail;
+            GM_setValue("optRichThumbnail", optRichThumbnail);
+            updateMenuCommands();
+            window.location.reload(true);
+        },
+        id: undefined,
+    },
+    {
+        label: () => `Logging: ${isLoggingEnabled ? "ON" : "OFF"}`,
+        toggle: function toggleLogging()
+        {
+            isLoggingEnabled = !isLoggingEnabled;
+            GM_setValue("isLoggingEnabled", isLoggingEnabled);
+            updateMenuCommands();
+            window.location.reload(true);
+        },
+        id: undefined,
+    }
+];
+
+function registerMenuCommands()
+{
+    for (const command of menuCommands)
+    {
+        command.id = GM_registerMenuCommand(command.label(), command.toggle);
+    }
+}
+
+function updateMenuCommands()
+{
+    for (const command of menuCommands)
+    {
+        if (command.id)
+        {
+            GM_unregisterMenuCommand(command.id);
+        }
+        command.id = GM_registerMenuCommand(command.label(), command.toggle);
+    }
+}
+
+function toggleRichThumbnail()
+{
+    optRichThumbnail = !optRichThumbnail;
+    GM_setValue("toggle5050Endorsement", optRichThumbnail);
+    updateMenuCommands();
+    window.location.reload(true);
+}
+
+function toggleLogging()
+{
+    isLoggingEnabled = !isLoggingEnabled;
+    GM_setValue("isLoggingEnabled", isLoggingEnabled);
+    updateMenuCommands();
+    window.location.reload(true);
+}
+
+registerMenuCommands();
+
+/* ---------------------------- Menu Commands End --------------------------- */
+
 function log(...args)
 {
-	if (isLoggingEnabled)
-	{
-		console.log(...args);
-	}
+    if (isLoggingEnabled)
+    {
+        console.log(...args);
+    }
 }
 
 
 function getByPathReduce(target, path)
 {
-	return path.split('.').reduce((result, key) => result?.[key], target) ?? [];
+    return path.split('.').reduce((result, key) => result?.[key], target) ?? [];
 }
 
 //Same result as getByPathReduce()
 function getByPathFunction(object, path)
 {
-	try
-	{
-		return new Function('object', `return object.${path}`)(object) ?? [];
-	} catch
-	{
-		return [];
-	}
+    try
+    {
+        return new Function('object', `return object.${path}`)(object) ?? [];
+    } catch
+    {
+        return [];
+    }
 }
 
 function getDataProperty(origin, videoType)
 {
-	const childQuerySelectors = {
-		"shorts-v2": shortsVideoTagName,
-		"compact-playlist": compactPlaylistSelector,
-	};
-	const selector = childQuerySelectors[videoType];
-	const target = selector ? origin.querySelector(selector) : origin;
-	return target?.data;
+    const childQuerySelectors = {
+        "shorts-v2": shortsVideoTagName,
+        "compact-playlist": compactPlaylistSelector,
+    };
+    const selector = childQuerySelectors[videoType];
+    const target = selector ? origin.querySelector(selector) : origin;
+    return target?.data;
 }
 
 function getMenuList(target)
 {
-	return target.map(item =>
-	{
-		const first = getByPathFunction(item, availableMenuItemsList1);
-		if (first.length) return first;
+    return target.map(item =>
+    {
+        const first = getByPathFunction(item, availableMenuItemsList1);
+        if (first.length) return first;
 
-		const second = getByPathFunction(item, availableMenuItemsList2);
-		if (second.length) return second;
+        const second = getByPathFunction(item, availableMenuItemsList2);
+        if (second.length) return second;
 
-		return null;
-	}).filter(Boolean);
+        return null;
+    }).filter(Boolean);
 }
 
 function findElemInParentDomTree(originElem, targetSelector)
 {
-	log(`🔍 Starting search from:`, originElem);
+    log(`🔍 Starting search from:`, originElem);
 
-	let node = originElem;
-	while (node)
-	{
-		log(`👆 Checking ancestor:`, node);
-		const found = Array.from(node.children).find(
-			(child) => child.matches(targetSelector) || child.querySelector(targetSelector)
-		);
+    let node = originElem;
+    while (node)
+    {
+        log(`👆 Checking ancestor:`, node);
+        const found = Array.from(node.children).find(
+            (child) => child.matches(targetSelector) || child.querySelector(targetSelector)
+        );
 
-		if (found)
-		{
-			const result = found.matches(targetSelector) ? found : found.querySelector(targetSelector);
-			log(`✅ Found target:`, result);
-			return result;
-		}
+        if (found)
+        {
+            const result = found.matches(targetSelector) ? found : found.querySelector(targetSelector);
+            log(`✅ Found target:`, result);
+            return result;
+        }
 
-		node = node.parentElement;
-	}
+        node = node.parentElement;
+    }
 
-	log("⚠️ No matching element found.");
-	return null;
+    log("⚠️ No matching element found.");
+    return null;
 }
 
 function getVisibleElem(targetSelector)
 {
-	const elements = document.querySelectorAll(targetSelector);
-	for (const element of elements)
-	{
-		const rect = element.getBoundingClientRect();
-		if (element.offsetParent !== null && rect.width > 0 && rect.height > 0)
-		{
-			log("👀 Menu is visible and ready:", element);
-			return element;
-		}
-	}
-	log("⚠️ No visible menu found.");
-	return null;
+    const elements = document.querySelectorAll(targetSelector);
+    for (const element of elements)
+    {
+        const rect = element.getBoundingClientRect();
+        if (element.offsetParent !== null && rect.width > 0 && rect.height > 0)
+        {
+            log("👀 Menu is visible and ready:", element);
+            return element;
+        }
+    }
+    log("⚠️ No visible menu found.");
+    return null;
 }
 
 async function waitUntil(conditionFunction, { interval = 100, timeout = 3000 } = {})
 {
-	const startTime = Date.now();
-	while (Date.now() - startTime < timeout)
-	{
-		const result = conditionFunction();
-		if (result) return result;
-		await new Promise((resolve) => setTimeout(resolve, interval));
-	}
-	throw new Error("⏰ Timeout: Target element is not visible in time");
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout)
+    {
+        const result = conditionFunction();
+        if (result) return result;
+        await new Promise((resolve) => setTimeout(resolve, interval));
+    }
+    throw new Error("⏰ Timeout: Target element is not visible in time");
 }
 
 function retryClick(element, { maxAttempts = 5, interval = 300 } = {})
 {
-	return new Promise((resolve) =>
-	{
-		let attempts = 0;
+    return new Promise((resolve) =>
+    {
+        let attempts = 0;
 
-		function tryClick()
-		{
-			if (!element || attempts >= maxAttempts)
-			{
-				log("⚠️ Retry failed or element missing.");
-				return resolve();
-			}
+        function tryClick()
+        {
+            if (!element || attempts >= maxAttempts)
+            {
+                log("⚠️ Retry failed or element missing.");
+                return resolve();
+            }
 
-			const rect = element.getBoundingClientRect();
-			const isVisible = rect.width > 0 && rect.height > 0;
+            const rect = element.getBoundingClientRect();
+            const isVisible = rect.width > 0 && rect.height > 0;
 
-			if (isVisible)
-			{
-				element.dispatchEvent(
-					new MouseEvent("click", {
-						view: document.defaultView,
-						bubbles: true,
-						cancelable: true,
-					}),
-				);
-				log("👇 Clicked matching menu item");
-				return resolve();
-			} else
-			{
-				attempts++;
-				setTimeout(tryClick, interval);
-			}
-		}
+            if (isVisible)
+            {
+                element.dispatchEvent(
+                    new MouseEvent("click", {
+                        view: document.defaultView,
+                        bubbles: true,
+                        cancelable: true,
+                    }),
+                );
+                log("👇 Clicked matching menu item");
+                return resolve();
+            } else
+            {
+                attempts++;
+                setTimeout(tryClick, interval);
+            }
+        }
 
-		tryClick();
-	});
+        tryClick();
+    });
 }
 
 
 function appendButtons(element, menuItems, type, position)
 {
-	let className, titleText, icon;
-	let buttonsToAppend = [];
+    let className, titleText, icon;
+    let buttonsToAppend = [];
 
-	const finalMenuItems = [...new Set(menuItems)];
+    const finalMenuItems = [...new Set(menuItems)];
 
-	//If menu is empty, proceed and still append the container to prevent looping of menu data probe.
-	//Probe will only skip if #quick-action exist.
+    //If menu is empty, proceed and still append the container to prevent looping of menu data probe.
+    //Probe will only skip if #quick-action exist.
 
-	for (const item of finalMenuItems)
-	{
-		if (!item) continue;
+    for (const item of finalMenuItems)
+    {
+        if (!item) continue;
 
-		let className;
-		let titleText;
-		let icon;
+        let className;
+        let titleText;
+        let icon;
 
-		if (item.startsWith("Remove from "))
-		{
-			className = "remove";
-			titleText = "Remove from playlist";
-			icon = trashIcon;
-		} else
-		{
-			switch (item)
-			{
-				case "Not interested":
-					className = "not_interested";
-					titleText = "Not interested";
-					icon = notInterestedIcon;
-					break;
-				case "Don't recommend channel":
-					className = "dont_recommend_channel";
-					titleText = "Don't recommend channel";
-					icon = dontRecommendChannelIcon;
-					break;
-				case "Hide":
-					className = "hide";
-					titleText = "Hide video";
-					icon = hideIcon;
-					break;
-				case "Save to playlist":
-					className = "save";
-					titleText = "Save to playlist";
-					icon = saveIcon;
-					break;
-				default:
-					continue;
-			}
-		}
+        if (item.startsWith("Remove from "))
+        {
+            className = "remove";
+            titleText = "Remove from playlist";
+            icon = trashIcon;
+        } else
+        {
+            switch (item)
+            {
+                case "Not interested":
+                    className = "not_interested";
+                    titleText = "Not interested";
+                    icon = notInterestedIcon;
+                    break;
+                case "Don't recommend channel":
+                    className = "dont_recommend_channel";
+                    titleText = "Don't recommend channel";
+                    icon = dontRecommendChannelIcon;
+                    break;
+                case "Hide":
+                    className = "hide";
+                    titleText = "Hide video";
+                    icon = hideIcon;
+                    break;
+                case "Save to playlist":
+                    className = "save";
+                    titleText = "Save to playlist";
+                    icon = saveIcon;
+                    break;
+                default:
+                    continue;
+            }
+        }
 
-		buttonsToAppend.push(
-			`<button class="qa-button ${className}" data-icon="${className}" title="${titleText}" data-text="${titleText}">${icon}</button>`,
-		);
-	}
+        buttonsToAppend.push(
+            `<button class="qa-button ${className}" data-icon="${className}" title="${titleText}" data-text="${titleText}">${icon}</button>`,
+        );
+    }
 
-	const buttonsContainer = document.createElement("div");
-	buttonsContainer.id = "quick-actions";
-	buttonsContainer.classList.add(position, type);
-	buttonsContainer.innerHTML = buttonsToAppend.join("");
+    const buttonsContainer = document.createElement("div");
+    buttonsContainer.id = "quick-actions";
+    buttonsContainer.classList.add(position, type);
+    buttonsContainer.innerHTML = buttonsToAppend.join("");
 
-	//element.insertAdjacentElement("afterend", buttonsContainer);
-	const exist = element.querySelector("#quick-actions");
-	if (exist) return;
-	element.insertAdjacentElement("beforeend", buttonsContainer);
+    //element.insertAdjacentElement("afterend", buttonsContainer);
+    const exist = element.querySelector("#quick-actions");
+    if (exist) return;
+    element.insertAdjacentElement("beforeend", buttonsContainer);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -365,284 +439,329 @@ function appendButtons(element, menuItems, type, position)
 // This ensures that if the content is updated, new hover actions will fetch fresh, relevant data.
 // I have not take a closer look at yt-made events. propably have some things we can customized and fire to speed things up
 // skip querying and fired the action straight up via their internal events
+
 document.addEventListener("yt-action", (event) =>
 {
-	if (event.detail.actionName === "ytd-update-grid-state-action")
-	{
-		log("🐛 Page updated.");
-		document.querySelectorAll("#quick-actions").forEach((element) => element.remove());
-	}
+    if (event.detail.actionName === "yt-history-pop")
+    {
+        log("🐛 Page updated.");
+    }
+
+    if (event.detail.actionName === "ytd-update-grid-state-action")
+    {
+        log("🐛 Page updated.");
+        document.querySelectorAll("#quick-actions").forEach((element) => element.remove());
+    }
 
 });
 
+let opThumbnail, riThumbnail;
 document.addEventListener("mouseover", (event) =>
 {
-	const path = event.composedPath();
-	for (let element of path)
-	{
-		if (
-			(element.tagName === normalVideoTagName ||
-				element.tagName === compactVideoTagName ||
-				element.tagName === shortsV2VideoTagName ||
-				element.tagName === searchVideoTagName ||
-				element.tagName === gridVideoTagName ||
-				element.tagName === playlistVideoTagName ||
-				element.tagName === playlistVideoTagName2) &&
-			!element.querySelector("#quick-actions")
-		)
-		{
-			let type, data;
+    const path = event.composedPath();
+    for (let element of path)
+    {
+        if (
+            (element.tagName === normalVideoTagName ||
+                element.tagName === compactVideoTagName ||
+                element.tagName === shortsV2VideoTagName ||
+                element.tagName === searchVideoTagName ||
+                element.tagName === gridVideoTagName ||
+                element.tagName === playlistVideoTagName ||
+                element.tagName === playlistVideoTagName2) &&
+            !element.querySelector("#quick-actions")
+        )
+        {
+            let type, data;
 
-			// Determine element type
-			// Hierarchy might need tweaking to simplify detection. nah this whole listener block, 
-			// cause i'm already confused which tag is needed for which video, what need extra query, then which path
-			// and specific video type wont get shown unless specific step is done, even then rarely replicable to debug
-			// some of this type no longer valid as i go, cause i can't keep track no more
-			if (element.tagName === shortsV2VideoTagName)
-			{
-				type = "shorts-v2";
-			}
-			else if (element.tagName === playlistVideoTagName && element.parentElement.parentElement.tagName === compactPlaylistContainer)
-			{
-				type = "compact-playlist";
-			}
-			else if (element.tagName === gridVideoTagName)
-			{
-				type = "grid-video";
-			}
-			else if (element.tagName === searchVideoTagName)
-			{
-				type = "search-video";
-			}
-			else if (element.tagName === playlistVideoTagName && element.parentElement.parentElement.tagName === normalVideoTagName)
-			{
-				//hover listener will land on playlistVideoTagName instead of normalVideoTagName for playlist/mixes on homepage
-				//so manually change back to normalVideoTagName as data is there.
-				element = element.parentElement.parentElement;
-				if (element.querySelector("#quick-actions")) return;
-				type = "playlist";
-			}
-			else if (element.tagName === playlistVideoTagName2)
-			{
-				type = "playlist2";
-			}
-			else
-			{
-				const isShort = element.querySelector(shortsVideoTagName) !== null;
-				const isPlaylist = element.querySelector(playlistVideoTagName) !== null;
-				const isMemberOnly =
-					element.querySelector(memberVideoTagName) !== null ||
-					element.querySelector(memberVideoSelector) !== null;
+            // Determine element type
+            // Hierarchy might need tweaking to simplify detection. nah this whole listener block,
+            // cause i'm already confused which tag is needed for which video, what need extra query, then which path
+            // and specific video type wont get shown unless specific step is done, even then rarely replicable to debug
+            // some of this type no longer valid as i go, cause i can't keep track no more
+            if (element.tagName === shortsV2VideoTagName)
+            {
+                type = "shorts-v2";
+            }
+            else if (element.tagName === playlistVideoTagName && element.parentElement.parentElement.tagName === compactPlaylistContainer)
+            {
+                type = "compact-playlist";
+            }
+            else if (element.tagName === gridVideoTagName)
+            {
+                type = "grid-video";
+            }
+            else if (element.tagName === searchVideoTagName)
+            {
+                type = "search-video";
+            }
+            else if (element.tagName === playlistVideoTagName && element.parentElement.parentElement.tagName === normalVideoTagName)
+            {
+                //hover listener will land on playlistVideoTagName instead of normalVideoTagName for playlist/mixes on homepage
+                //so manually change back to normalVideoTagName as data is there.
+                element = element.parentElement.parentElement;
+                if (element.querySelector("#quick-actions")) return;
+                type = "playlist";
+            }
+            else if (element.tagName === playlistVideoTagName2)
+            {
+                type = "playlist2";
+            }
+            else
+            {
+                const isShort = element.querySelector(shortsVideoTagName) !== null;
+                const isPlaylist = element.querySelector(playlistVideoTagName) !== null;
+                const isMemberOnly =
+                    element.querySelector(memberVideoTagName) !== null ||
+                    element.querySelector(memberVideoSelector) !== null;
 
-				type = isShort ? "shorts" :
-					element.tagName === compactVideoTagName ? "compact" :
-						isPlaylist ? "collection" :
-							isMemberOnly ? "members_only" : //TODO: Doesn't come by often to debug so no idea if it is working.
-								"normal";
-			}
+                type = isShort ? "shorts" :
+                    element.tagName === compactVideoTagName ? "compact" :
+                        isPlaylist ? "collection" :
+                            isMemberOnly ? "members_only" : 
+                                "normal";
+            }
 
-			log("⭐ Video Elem: ", element.tagName, element);
-			log("ℹ️ Video Type: ", type);
+            log("⭐ Video Elem: ", element.tagName, element);
+            log("ℹ️ Video Type: ", type);
 
-			data = getDataProperty(element, type);
-			const thumbnailElement = element.querySelector(thumbnailElementSelector);
-			const thumbnailSize =
-				thumbnailElement?.getClientRects?.().length > 0
-					? parseInt(thumbnailElement.getClientRects()[0].width)
-					: 100;
-			log("🖼️ Thumbnail Size: ", thumbnailSize);
-			const containerPosition = thumbnailSize < 211 ? "location-02" : "location-01";
+            data = getDataProperty(element, type);
+            const thumbnailElement = element.querySelector(thumbnailElementSelector);
+            const thumbnailSize =
+                thumbnailElement?.getClientRects?.().length > 0
+                    ? parseInt(thumbnailElement.getClientRects()[0].width)
+                    : 100;
+            log("🖼️ Thumbnail Size: ", thumbnailSize);
+            const containerPosition = thumbnailSize < 211 ? "location-02" : "location-01";
 
-			if (!data)
-			{
-				log("⚠️ No props data found.");
-				return;
-			}
+            if (!data)
+            {
+                log("⚠️ No props data found.");
+                return;
+            }
 
-			log("🎥 Video Props: ", data);
+            log("🎥 Video Props: ", data);
 
-			// Process menus based on video type
-			let menulist;
-			switch (type)
-			{
-				case "normal":
-					menulist = getByPathFunction(data, normalMenuPropertyPath);
-					break;
-				case "search-video":
-					menulist = getByPathFunction(data, searchMenuPropertyPath);
-					break;
-				case "grid-video":
-					menulist = getByPathFunction(data, gridMenuPropertyPath);
-					break;
-				case "shorts":
-					menulist = getByPathFunction(data, shortsMenuPropertyPath);
-					break;
-				case "shorts-v2":
-					menulist = getByPathFunction(data, shortsV2MenuPropertyPath);
-					break;
-				case "compact":
-					menulist = getByPathFunction(data, compactMenuPropertyPath);
-					break;
-				case "collection":
-					menulist = getByPathFunction(data, playlistMenuPropertyPath);
-					break;
-				case "playlist":
-					menulist = getByPathFunction(data, playlistMenuPropertyPath);
-					break;
-				case "playlist2":
-					menulist = getByPathFunction(data, playlistMenuPropertyPath2);
-					break;
-				case "compact-playlist":
-					menulist = getByPathFunction(data, compactPlaylistMenuPropertyPath);
-					break;
-				case "members_only":
-					menulist = getByPathFunction(data, membersOnlyMenuPropertyPath);
-					if (!menulist.length)
-					{
-						menulist = getByPathFunction(data, membersOnlyMenuPropertyPath2);
-					}
-					break;
-				default:
-					menulist = getByPathFunction(data, normalMenuPropertyPath);
-					break;
-			}
+            let menulist;
+            switch (type)
+            {
+                case "normal":
+                    menulist = getByPathFunction(data, normalMenuPropertyPath);
+                    break;
+                case "search-video":
+                    menulist = getByPathFunction(data, searchMenuPropertyPath);
+                    break;
+                case "grid-video":
+                    menulist = getByPathFunction(data, gridMenuPropertyPath);
+                    break;
+                case "shorts":
+                    menulist = getByPathFunction(data, shortsMenuPropertyPath);
+                    break;
+                case "shorts-v2":
+                    menulist = getByPathFunction(data, shortsV2MenuPropertyPath);
+                    break;
+                case "compact":
+                    menulist = getByPathFunction(data, compactMenuPropertyPath);
+                    break;
+                case "collection":
+                    menulist = getByPathFunction(data, playlistMenuPropertyPath);
+                    break;
+                case "playlist":
+                    menulist = getByPathFunction(data, playlistMenuPropertyPath);
+                    break;
+                case "playlist2":
+                    menulist = getByPathFunction(data, playlistMenuPropertyPath2);
+                    break;
+                case "compact-playlist":
+                    menulist = getByPathFunction(data, compactPlaylistMenuPropertyPath);
+                    break;
+                case "members_only":
+                    menulist = getByPathFunction(data, membersOnlyMenuPropertyPath);
+                    if (!menulist.length)
+                    {
+                        menulist = getByPathFunction(data, membersOnlyMenuPropertyPath2);
+                    }
+                    break;
+                default:
+                    menulist = getByPathFunction(data, normalMenuPropertyPath);
+                    break;
+            }
 
 
-			const menulistItems = getMenuList(menulist);
-			log("📃 Menu items: ", menulistItems);
-			appendButtons(element, menulistItems, type, containerPosition);
-		}
-	}
+            const menulistItems = getMenuList(menulist);
+            log("📃 Menu items: ", menulistItems);
+            appendButtons(element, menulistItems, type, containerPosition);
+
+            //Rich Thumbnails
+            if (optRichThumbnail)
+            {
+                element.addEventListener("mouseover", (event) =>
+                {
+                    const currentThumbnail = element.querySelector("img.yt-core-image");
+                    const thumbailData = getDataProperty(element, type);
+                    const normalRichThumbnail = getByPathFunction(thumbailData, normalVideoRichThumbnailPath);
+                    const compactRichThumbnail = getByPathFunction(thumbailData, compactVideoRichThumbnailPath);
+                    const richThumbnail =
+                        (typeof normalRichThumbnail === 'string' && normalRichThumbnail) ||
+                        (typeof compactRichThumbnail === 'string' && compactRichThumbnail) ||
+                        undefined;
+                    if (richThumbnail)
+                    {
+                        currentThumbnail.src = richThumbnail;
+                    }
+
+                }, true);
+                element.addEventListener("mouseout", (event) =>
+                {
+                    const currentThumbnail = element.querySelector("img.yt-core-image");
+                    const thumbnailData = getDataProperty(element, type);
+                    const normalThumbnails = getByPathFunction(thumbnailData, normalVideoThumbnailPath);
+                    const compactThumbnails = getByPathFunction(thumbnailData, compactVideoThumbnailPath);
+
+                    const biggestNormalThumbnail = normalThumbnails.at(-1)?.url;
+                    const biggestCompactThumbnail = compactThumbnails.at(-1)?.url;
+                    const staticThumbnail = biggestNormalThumbnail || biggestCompactThumbnail;
+
+                    if (staticThumbnail)
+                    {
+                        currentThumbnail.src = staticThumbnail;
+                    }
+
+                }, true);
+            }
+
+        }
+    }
 }, true);
 
 document.addEventListener("click", async function (event)
 {
-	const button = event.target.closest(".qa-button");
-	if (!button) return;
+    const button = event.target.closest(".qa-button");
+    if (!button) return;
 
-	event.stopPropagation();
-	event.stopImmediatePropagation();
-	event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    event.preventDefault();
 
-	const actionType = button.dataset.icon;
-	let response;
+    const actionType = button.dataset.icon;
+    let response;
 
-	switch (actionType)
-	{
-		case "not_interested":
-			response = "Not interested";
-			log("😴 Marking as not interested");
-			break;
-		case "dont_recommend_channel":
-			response = "Don't recommend channel";
-			log("🚫 Don't recommend channel");
-			break;
-		case "hide":
-			response = "Hide";
-			log("🗑️ Hiding video");
-			break;
-		case "remove":
-			response = "Remove from";
-			log("🗑️ Remove from playlist");
-			break;
-		case "save":
-			response = "Save to playlist";
-			log("📂 Saving to playlist");
-			break;
-		default:
-			log("☠️ Unknown action");
-	}
+    switch (actionType)
+    {
+        case "not_interested":
+            response = "Not interested";
+            log("😴 Marking as not interested");
+            break;
+        case "dont_recommend_channel":
+            response = "Don't recommend channel";
+            log("🚫 Don't recommend channel");
+            break;
+        case "hide":
+            response = "Hide";
+            log("🗑️ Hiding video");
+            break;
+        case "remove":
+            response = "Remove from";
+            log("🗑️ Remove from playlist");
+            break;
+        case "save":
+            response = "Save to playlist";
+            log("📂 Saving to playlist");
+            break;
+        default:
+            log("☠️ Unknown action");
+    }
 
-	let menupath;
+    let menupath;
 
-	if (button.parentElement.parentElement.tagName === shortsV2VideoTagName || button.parentElement.parentElement.querySelector(playlistVideoTagName))
-	{
-		menupath = shortsAndPlaylistHamburgerMenuSelector;
-	}
-	else if (button.parentElement.classList.contains("shorts"))
-	{
-		//shorts but not inside shortsv2 container idk where i found this its gone now crazy i was crazy once
-		alert("shorts!");
-		menupath = shortsAndPlaylistHamburgerMenuSelector;
-	}
-	else if (button.parentElement.classList.contains("compact-playlist"))
-	{
-		menupath = shortsAndPlaylistHamburgerMenuSelector;
-	}
-	else
-	{
-		menupath = normalHamburgerMenuSelector;
-	}
+    if (button.parentElement.parentElement.tagName === shortsV2VideoTagName || button.parentElement.parentElement.querySelector(playlistVideoTagName))
+    {
+        menupath = shortsAndPlaylistHamburgerMenuSelector;
+    }
+    else if (button.parentElement.classList.contains("shorts"))
+    {
+        //shorts but not inside shortsv2 container idk where i found this its gone now crazy i was crazy once
+        alert("shorts!");
+        menupath = shortsAndPlaylistHamburgerMenuSelector;
+    }
+    else if (button.parentElement.classList.contains("compact-playlist"))
+    {
+        menupath = shortsAndPlaylistHamburgerMenuSelector;
+    }
+    else
+    {
+        menupath = normalHamburgerMenuSelector;
+    }
 
-	const menus = findElemInParentDomTree(button, menupath);
-	if (!menus)
-	{
-		log("❌ Menu button not found.");
-		return;
-	}
+    const menus = findElemInParentDomTree(button, menupath);
+    if (!menus)
+    {
+        log("❌ Menu button not found.");
+        return;
+    }
 
-	menus.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-	log("👇 Button clicked, waiting for menu...");
+    menus.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    log("👇 Button clicked, waiting for menu...");
 
-	try
-	{
-		const visibleMenu = await waitUntil(() => getVisibleElem(dropdownMenuTagName), {
-			interval: 100,
-			timeout: 3000,
-		});
-		if (visibleMenu)
-		{
-			try
-			{
-				const targetItem = await waitUntil(
-					() =>
-					{
-						const items = visibleMenu.querySelectorAll(popupMenuItemsSelector);
-						return items.length > 0 ? items : null;
-					},
-					{
-						interval: 100,
-						timeout: 5000,
-					},
-				);
+    try
+    {
+        const visibleMenu = await waitUntil(() => getVisibleElem(dropdownMenuTagName), {
+            interval: 100,
+            timeout: 3000,
+        });
+        if (visibleMenu)
+        {
+            try
+            {
+                const targetItem = await waitUntil(
+                    () =>
+                    {
+                        const items = visibleMenu.querySelectorAll(popupMenuItemsSelector);
+                        return items.length > 0 ? items : null;
+                    },
+                    {
+                        interval: 100,
+                        timeout: 5000,
+                    },
+                );
 
-				if (targetItem)
-				{
-					log("🎉 Target items found:", targetItem);
+                if (targetItem)
+                {
+                    log("🎉 Target items found:", targetItem);
 
-					for (const item of targetItem)
-					{
-						if (
-							item.textContent === response ||
-							(response === "Remove from" && item.textContent.startsWith("Remove from"))
-						)
-						{
-							log(`✅ Matched: (${response} = ${item.textContent})`);
-							log(`✅`, item);
+                    for (const item of targetItem)
+                    {
+                        if (
+                            item.textContent === response ||
+                            (response === "Remove from" && item.textContent.startsWith("Remove from"))
+                        )
+                        {
+                            log(`✅ Matched: (${response} = ${item.textContent})`);
+                            log(`✅`, item);
 
-							const button = item;
-							await retryClick(button, { maxAttempts: 5, interval: 300 }).finally(() =>
-							{
-								document.body.click();
-							});
-							break;
-						} else
-						{
-							log(`❌ Not a match: (${response} = ${item.textContent})`);
-						}
-					}
-				}
-			} catch (error)
-			{
-				log("🛑 !", error.message);
-				//document.body.click()
-			}
-		}
+                            const button = item;
+                            await retryClick(button, { maxAttempts: 5, interval: 300 }).finally(() =>
+                            {
+                                document.body.click();
+                            });
+                            break;
+                        } else
+                        {
+                            log(`❌ Not a match: (${response} = ${item.textContent})`);
+                        }
+                    }
+                }
+            } catch (error)
+            {
+                log("🛑 !", error.message);
+                //document.body.click()
+            }
+        }
 
-		//setTimeout(() => document.body.click(), 200);
-	} catch (error)
-	{
-		log("🛑 !!", error.message);
-		//document.body.click()
-	}
+        //setTimeout(() => document.body.click(), 200);
+    } catch (error)
+    {
+        log("🛑 !!", error.message);
+        //document.body.click()
+    }
 });
